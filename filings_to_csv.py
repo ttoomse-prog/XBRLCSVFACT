@@ -50,48 +50,19 @@ USER_SETS_FILE = "sets.json"  # optional, extends CURATED_SETS
 # ----------------------------------------------------------------------------
 # Curated sets
 # ----------------------------------------------------------------------------
-# Matching is deliberately transparent: countries are exact, name fragments are
-# case-insensitive substrings of the company name as it appears in the index.
-# Nothing here is authoritative — edit freely, or add your own in sets.json.
+# Sets come from sets.json in the repo root. Each entry can match on any of:
+#   countries   list of country codes, exact
+#   leis        list of LEIs — the durable option, since names change
+#   name_any    case-insensitive substrings of the company name
+#   latest_only keep one filing per company (default true)
+#   limit       cap the number of filings
+# Build one by hand with "Save this selection as a set" at the bottom of the
+# page. If sets.json is absent, the set picker is hidden entirely.
 #
-# There is no size or market-cap field in the filings index, so a genuine
-# "largest 100" cannot be derived from the API. To build one, select the
-# companies once by hand and use "Save selection as a set" at the bottom of the
-# page — that writes a set keyed on LEI, which is stable across years.
+# Note there is no size or market-cap field in the filings index, so a set like
+# "largest 100" has to be built from a selection rather than derived.
 
-CURATED_SETS: dict[str, dict[str, Any]] = {
-    "European pharmaceuticals": {
-        "note": "Large listed pharma. Swiss names (Roche, Novartis) file outside "
-                "ESEF so will not appear.",
-        "name_any": [
-            "novo nordisk", "astrazeneca", "gsk", "glaxo", "sanofi", "bayer",
-            "merck", "ucb", "ipsen", "recordati", "orion", "almirall",
-            "grifols", "genmab", "lundbeck", "galapagos", "argenx",
-        ],
-    },
-    "UK listed (UKSEF)": {
-        "note": "Everything filed under the UK ESEF regime.",
-        "countries": ["GB"],
-    },
-    "Nordic listed": {
-        "note": "Sweden, Norway, Denmark and Finland.",
-        "countries": ["SE", "NO", "DK", "FI"],
-    },
-    "Banks and insurers": {
-        "note": "Financial institutions use a distinctive part of the taxonomy — "
-                "a good contrast with industrials.",
-        "name_any": [
-            "bank", "banca", "banco", "insurance", "assicurazioni", "lloyds",
-            "barclays", "natwest", "hsbc", "aviva", "axa", "allianz", "ing ",
-            "unicredit", "santander", "nordea", "prudential", "legal & general",
-        ],
-    },
-    "Teaching demo (3 filings)": {
-        "note": "Small and quick. Use this first to see how the output looks.",
-        "countries": ["GB"],
-        "limit": 3,
-    },
-}
+CURATED_SETS: dict[str, dict[str, Any]] = {}
 
 
 def load_user_sets() -> dict[str, dict[str, Any]]:
@@ -520,25 +491,26 @@ def main() -> None:
         st.subheader("2 · Choose companies")
         available = idx[idx["has_json"]]
 
-        set_name = st.selectbox(
-            "Start from a set (optional)", ["— none —"] + sorted(all_sets),
-        )
         preselected: list[str] = []
-        if set_name != "— none —":
-            spec = all_sets[set_name]
-            if spec.get("note"):
-                st.caption(spec["note"])
-            matched = apply_set(available, spec)
-            preselected = sorted(matched["company"].unique())
-            if not preselected:
-                st.warning(
-                    "Nothing in this set matched the index you've loaded. Try a "
-                    "different country, or read more pages."
-                )
-            else:
-                st.caption(f"{len(preselected)} companies matched.")
+        if all_sets:
+            set_name = st.selectbox(
+                "Start from a set (optional)", ["— none —"] + sorted(all_sets),
+            )
+            if set_name != "— none —":
+                spec = all_sets[set_name]
+                if spec.get("note"):
+                    st.caption(spec["note"])
+                matched = apply_set(available, spec)
+                preselected = sorted(matched["company"].unique())
+                if not preselected:
+                    st.warning(
+                        "Nothing in this set matched the index you've loaded. Try a "
+                        "different country, or read more pages."
+                    )
+                else:
+                    st.caption(f"{len(preselected)} companies matched.")
 
-        name_filter = st.text_input("Or search by name")
+        name_filter = st.text_input("Search by name")
         view = available
         if name_filter:
             view = view[view["company"].str.contains(name_filter, case=False, na=False)]
