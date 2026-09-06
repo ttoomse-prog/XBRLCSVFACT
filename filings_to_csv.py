@@ -239,6 +239,29 @@ def _to_number(value: Any) -> float | None:
         return None
 
 
+# filings.xbrl.org lays out a filing as
+#   /{lei}/{date}/{scheme}/{country}/{n}/{lei}-{date}/reports/ixbrlviewer.html
+# and fxo_id holds every part of that: {lei}-{date}-{scheme}-{country}-{n}
+_FXO = re.compile(
+    r"^(?P<lei>[A-Z0-9]{20})-(?P<date>\d{4}-\d{2}-\d{2})"
+    r"-(?P<scheme>[A-Z]+)-(?P<cc>[A-Z]{2})-(?P<n>\d+)$"
+)
+
+
+def viewer_link(fxo_id: Any, known: Any = None) -> str | None:
+    """Link to the filing in the inline viewer, with tags highlighted."""
+    if known and isinstance(known, str):
+        return known if known.startswith("http") else BASE + known
+    m = _FXO.match(str(fxo_id or ""))
+    if not m:
+        return None
+    d = m.groupdict()
+    return (
+        f"{BASE}/{d['lei']}/{d['date']}/{d['scheme']}/{d['cc']}/{d['n']}/"
+        f"{d['lei']}-{d['date']}/reports/ixbrlviewer.html"
+    )
+
+
 STANDARD_PREFIXES = {"ifrs-full", "ifrs", "uk-bus", "uk-core", "uk-gaap", "esef_cor"}
 
 
@@ -289,7 +312,7 @@ def flatten_report(doc: dict, meta: dict | None = None) -> pd.DataFrame:
             "n_dimensions": len(dims),
             "taxonomy": taxonomy,
             "json_url": meta.get("json_url"),
-            "viewer_url": meta.get("viewer_url"),
+            "viewer_url": viewer_link(meta.get("fxo_id"), meta.get("viewer_url")),
         }
         for key, val in dims.items():
             row[f"dim:{key}"] = val
@@ -423,6 +446,9 @@ def read_cache(path: str) -> pd.DataFrame:
     if col in df.columns and df[col].astype(str).str.match(r"\d{2}/\d{2}/\d{4}").any():
         df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce") \
                     .dt.strftime("%Y-%m-%d")
+    # datasets built before report links existed can have them derived
+    if "viewer_url" not in df.columns and "fxo_id" in df.columns:
+        df["viewer_url"] = df["fxo_id"].map(viewer_link)
     return df
 
 
@@ -629,7 +655,19 @@ def main() -> None:
         )
 
         with tab_long:
-            st.dataframe(data.head(300), use_container_width=True)
+            st.dataframe(
+                data.head(300), use_container_width=True,
+                column_config={
+                    "viewer_url": st.column_config.LinkColumn(
+                        "Annual report", display_text="Open ↗",
+                        help="Opens the filing with its tags highlighted.",
+                    )
+                },
+            )
+            st.caption(
+                "Every row links back to the published report — useful for "
+                "checking what a tagged number actually refers to."
+            )
             st.download_button(
                 "Download CSV", to_csv_bytes(data),
                 file_name="xbrl_facts.csv", mime="text/csv", type="primary",
